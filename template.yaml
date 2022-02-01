@@ -1,0 +1,87 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Deploy a lambda which will write logs to deployed s3 bucket
+
+Parameters:
+  Environment:
+    Type: String
+    Description: Name of the Environment
+    Default: dev
+  LogBucketName:
+    Type: String
+    Description: Name of the log bucket
+    Default: testlogs
+
+Resources:
+  LogsS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${LogBucketName}-${Environment}'
+      AccessControl: PublicRead
+  LogsS3BucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      Bucket: !Ref LogsS3Bucket
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          Effect: Allow
+          Action: 's3:GetObject'
+          Principal: '*'
+          Resource: !Join
+            - ''
+            - - 'arn:aws:s3:::'
+              - !Ref LogsS3Bucket
+              - /*
+
+  LogDeliveryLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'log-delivery-lambda-role-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: WriteToS3Policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 's3:PutObject'
+                Resource: !Join
+                  - ''
+                  - - 'arn:aws:s3:::'
+                    - !Ref LogsS3Bucket
+                    - /*
+  LogDeliveryLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      Role: !GetAtt LogDeliveryLambdaRole.Arn
+      FunctionName: !Sub 'log-delivery-lambda-${Environment}'
+      Runtime: nodejs14.x
+      Handler: index.handler
+      Timeout: 30
+      CodeUri: publish.zip
+      Environment:
+        Variables:
+          BucketName: !Sub '${LogBucketName}-${Environment}'
+          Region: !Ref AWS::Region
+
+Outputs:
+  LogDeliveryBucketUrl:
+    Value: !Join
+      - ''
+      - - 'https://'
+        - !GetAtt
+          - LogsS3Bucket
+          - DomainName
+    Description: Name of S3 bucket
+    Export:
+      Name: !Sub 'log-delivery-bucket-url-${Environment}'
